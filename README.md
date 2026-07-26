@@ -1,4 +1,4 @@
-# PokerBot 🃏
+# PokerBot 
 
 A Texas Hold'em engine and AI training framework in Python. Built in two decoupled layers — a headless game engine for training, and an optional Pygame interface for human play.
 
