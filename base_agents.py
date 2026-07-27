@@ -11,6 +11,71 @@ handles input for them. In headless mode, pass a real agent for every seat.
 import random
 from game import GameState, Action
 from card import Card, Rank, Suit
+from evaluator import best_hand, rank_players
+
+
+# ── Monte Carlo equity estimator ──────────────────────────────────────────────
+
+def estimate_equity(hole_cards: list[Card], community: list[Card], 
+                    num_opponents: int, simulations: int = 500) -> float:
+    """
+    Estimate equity (win probability) via Monte Carlo simulation.
+    
+    Args:
+        hole_cards: Your 2 hole cards [Card, Card]
+        community: Community cards on board (0-5 cards)
+        num_opponents: Number of active opponents
+        simulations: Number of runout simulations (default 500)
+    
+    Returns:
+        Equity in [0, 1] (win rate against all opponents)
+    """
+    if num_opponents == 0:
+        return 1.0  # No opponents left, you win by default
+    
+    # Build set of used cards
+    used_cards = set(hole_cards + community)
+    
+    # Available cards in deck
+    available = [Card(rank, suit) 
+                 for rank in Rank 
+                 for suit in Suit 
+                 if Card(rank, suit) not in used_cards]
+    
+    cards_needed = (5 - len(community))  # How many more community cards to deal
+    
+    wins = 0
+    for _ in range(simulations):
+        # Shuffle available cards for this simulation
+        deck = available.copy()
+        random.shuffle(deck)
+        idx = 0
+        
+        # Deal opponent hole cards
+        opponents_hole = {}
+        for opp in range(num_opponents):
+            opponents_hole[opp] = [deck[idx], deck[idx + 1]]
+            idx += 2
+        
+        # Run out remaining community cards
+        simulated_community = community + deck[idx:idx + cards_needed]
+        
+        # Evaluate hands
+        my_hand = best_hand(hole_cards, simulated_community)
+        my_result = (my_hand, 'me')
+        
+        # Check if we beat all opponents
+        beat_all = True
+        for opp in range(num_opponents):
+            opp_hand = best_hand(opponents_hole[opp], simulated_community)
+            if opp_hand > my_hand:
+                beat_all = False
+                break
+        
+        if beat_all:
+            wins += 1
+    
+    return wins / simulations
 
 
 # ── Base class ────────────────────────────────────────────────────────────────
@@ -66,97 +131,59 @@ class CallStationAgent(BaseAgent):
 
 class SimpleRuleAgent(BaseAgent):
     """
-    A basic rule-based agent using pot odds and rough hand strength.
+    Equity-based agent using Monte Carlo simulation and pot odds.
 
     Decision logic:
-      - Strong hand  → raise sometimes, always call
-      - Medium hand  → call if pot odds are decent
-      - Weak hand    → fold if facing a bet, check if free
+      1. Calculate hand equity via Monte Carlo simulation
+      2. Compare to pot odds (break-even call probability)
+      3. Raise if equity > 0.75, call if equity > pot_odds, fold otherwise
     """
-
-    STRONG_PAIRS = {Rank.ACE, Rank.KING, Rank.QUEEN, Rank.JACK}
 
     def decide(self, state: GameState, legal: list) -> tuple:
         obs      = state.to_observation(self.pid)
-        strength = self._hand_strength(obs)
         to_call  = obs['to_call']
         pot      = obs['pot']
         actions  = {a: amt for a, amt in legal}
 
-        # Pot odds: if we call, what fraction of the new pot do we invest?
+        # Get our cards
+        hole  = [Card.from_dict(c) for c in obs['my_hole_cards']]
+        board = [Card.from_dict(c) for c in obs['community']]
+        
+        # Count active opponents still in hand
+        num_opponents = len([p for p in obs['players'] 
+                            if p['pid'] != self.pid and not p['folded']])
+        
+        # Calculate equity via Monte Carlo (150 simulations for speed)
+        equity = estimate_equity(hole, board, num_opponents, simulations=150)
+        
+        # Calculate pot odds: what fraction of the new pot do we invest?
         pot_odds = to_call / (pot + to_call) if to_call > 0 else 0
 
-        if strength > 0.75:
-            # Strong — raise if we can, otherwise call
+        # ── Decision logic ────────────────────────────────────────────────────
+        
+        # Strong hand: raise if possible, otherwise call
+        if equity > 0.75:
             if Action.RAISE in actions and random.random() < 0.6:
-                min_r   = actions[Action.RAISE]
-                my_chips= self._my_chips(state)
-                amount  = min(min_r + random.randint(0, min_r), my_chips + state.players[self.pid].bet)
+                min_r = actions[Action.RAISE]
+                my_chips = self._my_chips(state)
+                my_bet = state.players[self.pid].bet
+                # 3x pot raise (rough)
+                max_raise = min(my_chips + my_bet, min_r * 3)
+                amount = random.randint(min_r, max(min_r, max_raise))
                 return Action.RAISE, amount
             if Action.CALL in actions:
                 return Action.CALL, actions[Action.CALL]
             return Action.CHECK, 0
-
-        elif strength > 0.4:
-            # Medium — call if pot odds justify it
+        
+        # Medium-strong hand: call if equity justifies it
+        if equity > pot_odds:
             if to_call == 0:
                 return Action.CHECK, 0
-            if pot_odds < strength:        # odds are good enough
-                return Action.CALL, actions.get(Action.CALL, 0)
+            if Action.CALL in actions:
+                return Action.CALL, actions[Action.CALL]
             return Action.FOLD, 0
-
-        else:
-            # Weak — only play for free
-            if Action.CHECK in actions:
-                return Action.CHECK, 0
-            return Action.FOLD, 0
-
-    def _hand_strength(self, obs: dict) -> float:
-        """
-        Crude pre-flop / post-flop hand strength estimate in [0, 1].
-        Replace this with a proper equity calculator or neural net later.
-        """
-        from card import Card, Rank, Suit, RANK_LABELS
-        hole  = [Card.from_dict(c) for c in obs['my_hole_cards']]
-        board = [Card.from_dict(c) for c in obs['community']]
-
-        if not hole:
-            return 0.5
-
-        ranks  = sorted([c.rank for c in hole], reverse=True)
-        suited = hole[0].suit == hole[1].suit
-
-        if not board:
-            # Pre-flop estimate (Chen-ish simplified)
-            high, low = ranks[0], ranks[1]
-            score = int(high) / 14.0
-            if high == low:                     score += 0.25  # pair
-            if suited:                          score += 0.05
-            if int(high) - int(low) <= 2:       score += 0.05  # connected
-            return min(score, 1.0)
-        else:
-            # Post-flop: count outs roughly
-            all_cards = hole + board
-            all_ranks  = [c.rank for c in all_cards]
-            all_suits  = [c.suit for c in all_cards]
-            counts     = {}
-            for r in all_ranks:
-                counts[r] = counts.get(r, 0) + 1
-            suit_counts= {}
-            for s in all_suits:
-                suit_counts[s] = suit_counts.get(s, 0) + 1
-
-            has_pair    = any(v >= 2 for v in counts.values())
-            has_trips   = any(v >= 3 for v in counts.values())
-            has_quads   = any(v >= 4 for v in counts.values())
-            has_flush   = any(v >= 5 for v in suit_counts.values())
-            has_two_pair= sum(1 for v in counts.values() if v >= 2) >= 2
-            has_full    = has_trips and has_pair and not has_quads
-
-            if has_quads:   return 0.98
-            if has_full:    return 0.92
-            if has_flush:   return 0.85
-            if has_trips:   return 0.75
-            if has_two_pair:return 0.65
-            if has_pair:    return 0.50
-            return 0.25
+        
+        # Weak hand: only play for free
+        if Action.CHECK in actions:
+            return Action.CHECK, 0
+        return Action.FOLD, 0
