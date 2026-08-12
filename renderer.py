@@ -1,6 +1,6 @@
 """
-renderer.py — Pygame visual layer for the poker engine.
-Completely decoupled from game logic.
+renderer.py — Pygame front-end for the poker engine.
+Game logic lives elsewhere; this file only draws and collects input.
 """
 
 import pygame
@@ -40,11 +40,11 @@ CARD_SMALL_W = 42
 CARD_SMALL_H = 60
 BTN_H        = 44
 BTN_GAP      = 10
-PANEL_H      = 140   # bottom action panel height
+PANEL_H      = 140   # height of the bottom action strip
 
-# Action panel internal layout
-SLIDER_Y_OFF = 10    # y offset from panel top for slider row
-BTN_Y_OFF    = 62    # y offset from panel top for buttons row
+# Offsets inside that strip
+SLIDER_Y_OFF = 10    # slider row from top of panel
+BTN_Y_OFF    = 62    # button row from top of panel
 
 
 class Button:
@@ -72,14 +72,13 @@ class Button:
 
 class PokerRenderer:
     """
-    Wraps a PokerGame and renders it with Pygame.
-    Call renderer.run() to enter the event loop.
+    Glue a PokerGame to a Pygame window.
+    Call run() and it owns the event loop from there.
     """
 
     def __init__(self, game, agents: dict):
         """
-        game   — a PokerGame instance
-        agents — {pid: agent | None}  (None = human, handled by UI)
+        agents maps pid → agent, or None for a human-controlled seat.
         """
         pygame.init()
         pygame.display.set_caption("Texas Hold'em")
@@ -107,7 +106,7 @@ class PokerRenderer:
         self.waiting_human  = False
         self.show_showdown  = False
 
-        # Seat positions (cx, cy) for up to 6 players
+        # Seat coords (cx, cy); seat 0 is always the bottom/human position
         self._seats = {
             0: (W // 2,      H - PANEL_H - 30),   # bottom  (human)
             1: (W - 170,     H // 2 - 80),         # right
@@ -176,12 +175,12 @@ class PokerRenderer:
         self._rebuild_buttons()
 
     def _raise_range(self):
-        """Return (min_raise, max_raise) for the current human player."""
+        """(min_raise, max_raise) for the human, as total street bet sizes."""
         s  = self.game.get_state()
         me = s.players[self.human_pid]
-        # Min raise: must be at least one big blind more than the current bet
+        # Floor: one BB over the current bet (or just one BB if opening)
         min_raise = s.current_bet + self.game.BIG_BLIND
-        # Max raise: all their chips (all-in), expressed as a total street bet
+        # Ceiling: shove — chips left plus what's already in this street
         max_raise = me.chips + me.bet
         min_raise = max(self.game.BIG_BLIND, min(min_raise, max_raise))
         return min_raise, max_raise
@@ -243,7 +242,7 @@ class PokerRenderer:
             self._check_showdown()
 
     def _on_new_turn(self):
-        """Called after new_hand() — determine if human goes first."""
+        """After dealing a hand, figure out whether the human acts first."""
         self.waiting_human = self._is_human_turn()
         self._rebuild_buttons()
 
@@ -278,7 +277,7 @@ class PokerRenderer:
         self.slider_rect = pygame.Rect(0, 0, 0, 0)
 
         if self.game.hand_over():
-            # Single "Deal Next Hand" button centred in panel
+            # Between hands — just offer "Deal Next Hand"
             bw, bh = 200, BTN_H
             bx = W // 2 - bw // 2
             by = H - PANEL_H + (PANEL_H - bh) // 2
@@ -296,7 +295,7 @@ class PokerRenderer:
 
         panel_top = H - PANEL_H
 
-        # ── Slider row (only when raise is available) ─────────────────────
+        # Slider only shows when raising is legal
         if can_raise:
             mn, mx = self._raise_range()
             self.raise_amount = max(mn, min(self.raise_amount, mx))
@@ -307,8 +306,7 @@ class PokerRenderer:
             slider_y  = panel_top + SLIDER_Y_OFF + 16
             self.slider_rect = pygame.Rect(slider_x, slider_y, slider_w, slider_h)
 
-        # ── Button row ────────────────────────────────────────────────────
-        # Work out which buttons exist to centre them
+        # Build the button list first so we can centre the whole row
         btn_specs = []  # (label, color, width)
         BW = 110
 
@@ -321,7 +319,7 @@ class PokerRenderer:
             btn_specs.append((lbl, GREEN_BTN, BW + 20))
         if can_raise:
             mn, _ = self._raise_range()
-            # "Bet" when no prior bet this street, "Raise" otherwise
+            # Opening the street is a "Bet"; responding to one is a "Raise"
             verb = "Bet" if state.current_bet == 0 else "Raise"
             lbl  = f"{verb} ${self.raise_amount}"
             btn_specs.append((lbl, AMBER_BTN, BW + 30))
@@ -382,7 +380,7 @@ class PokerRenderer:
 
     def _draw_players(self):
         state = self.game.get_state()
-        # Assign visual seats: human always seat 0 (bottom)
+        # Human stays on the bottom seat; everyone else fans out around the table
         others = [p.pid for p in state.players if p.pid != self.human_pid]
         pid_to_seat = {self.human_pid: 0}
         for i, pid in enumerate(others):
@@ -401,12 +399,12 @@ class PokerRenderer:
 
     def _draw_seat(self, player: PlayerState, cx, cy,
                    is_acting, is_winner, show_cards, state):
-        # Glow ring
+        # Highlight ring for the actor / winner
         ring = WINNER_RING if is_winner else (ACTIVE_RING if is_acting else None)
         if ring:
             pygame.draw.circle(self.screen, ring, (cx, cy), 44, 3)
 
-        # Info box
+        # Name / stack / street bet
         box_col = (45, 65, 45) if is_acting else (20, 32, 20)
         if player.folded:
             box_col = (28, 28, 28)
@@ -479,25 +477,22 @@ class PokerRenderer:
         frac   = max(0.0, min(1.0, frac))
         sr     = self.slider_rect
 
-        # Track
+        # Track / fill / thumb
         pygame.draw.rect(self.screen, (55, 55, 55), sr, border_radius=6)
-        # Fill
         fill_w = int(frac * sr.width)
         if fill_w > 0:
             pygame.draw.rect(self.screen, GOLD_DARK,
                              (sr.left, sr.top, fill_w, sr.height), border_radius=6)
-        # Thumb
         tx = sr.left + fill_w
         pygame.draw.circle(self.screen, GOLD,  (tx, sr.centery), 11)
         pygame.draw.circle(self.screen, WHITE, (tx, sr.centery), 11, 2)
 
-        # Min / max labels
         t = self.font_xs.render(f'min ${mn}', True, TEXT_DIM)
         self.screen.blit(t, (sr.left, sr.bottom + 3))
         t = self.font_xs.render(f'all-in ${mx}', True, TEXT_DIM)
         self.screen.blit(t, t.get_rect(topright=(sr.right, sr.bottom + 3)))
 
-        # Current amount label above thumb
+        # Amount sits above the thumb so you can see what you're shoving
         t = self.font_sm.render(f'${self.raise_amount}', True, GOLD)
         self.screen.blit(t, t.get_rect(midbottom=(tx, sr.top - 3)))
 

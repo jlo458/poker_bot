@@ -33,7 +33,7 @@ HAND_NAMES = {
 
 
 class HandResult:
-    """Fully comparable hand result."""
+    """Hand category + kickers — comparable with the usual < / > operators."""
     def __init__(self, rank: int, tiebreakers: tuple):
         self.rank = rank
         self.tiebreakers = tiebreakers
@@ -64,7 +64,7 @@ def _evaluate_five(cards: list[Card]) -> HandResult:
     is_straight = (
         len(unique_ranks) == 5 and unique_ranks[-1] - unique_ranks[0] == 4
     )
-    # Wheel straight: A-2-3-4-5
+    # Ace plays low in the wheel (A-2-3-4-5)
     is_wheel = set(ranks) == {Rank.ACE, Rank.TWO, Rank.THREE, Rank.FOUR, Rank.FIVE}
 
     if is_flush and is_straight:
@@ -98,7 +98,7 @@ def _evaluate_five(cards: list[Card]) -> HandResult:
 
 
 def best_hand(hole_cards: list[Card], community: list[Card]) -> HandResult:
-    """Find the best 5-card hand from up to 7 cards."""
+    """Best 5-card hand you can make from hole cards + the board."""
     all_cards = hole_cards + community
     if len(all_cards) < 5:
         raise ValueError("Need at least 5 cards to evaluate")
@@ -107,9 +107,8 @@ def best_hand(hole_cards: list[Card], community: list[Card]) -> HandResult:
 
 def rank_players(players_hole: dict, community: list[Card]) -> list:
     """
-    Given {player_id: [card, card]} and community cards,
-    return list of player_ids sorted best-to-worst hand.
-    Ties are grouped together.
+    players_hole is {pid: [card, card]}. Returns (pids best→worst, results).
+    Equal hands stay equal under HandResult comparison.
     """
     results = {pid: best_hand(cards, community) for pid, cards in players_hole.items()}
     sorted_ids = sorted(results, key=lambda p: results[p], reverse=True)
