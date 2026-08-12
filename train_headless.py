@@ -1,13 +1,12 @@
 """
-train_headless.py — Run poker hands without any Pygame UI.
+train_headless.py — Training loop with no Pygame.
 
-This is your training harness. No display, no imports from renderer.py.
-Run as many episodes as you like; replace agents with your AI as it develops.
+No display, nothing imported from renderer.py. Spin as many hands as you
+want and drop your AI into the agents dict when it's ready.
 
-Usage:
-    python train_headless.py                  # 1000 hands, prints summary
+    python train_headless.py                  # 1000 hands + summary
     python train_headless.py --hands 50000    # longer run
-    python train_headless.py --verbose        # print every action
+    python train_headless.py --verbose        # log every action
 """
 
 import argparse
@@ -18,7 +17,7 @@ from base_agents import RandomAgent, SimpleRuleAgent, CallStationAgent
 
 
 def run_episode(game: PokerGame, agents: dict, verbose=False) -> dict:
-    """Play one hand to completion. Returns chip deltas per player."""
+    """Play one full hand; returns {pid: chip delta} for the episode."""
     chips_before = {p.pid: p.chips for p in game.players}
     game.new_hand()
 
@@ -56,19 +55,17 @@ def main():
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()
 
-    # ── Set up game ───────────────────────────────────────────────────────────
     NUM_PLAYERS = 4
     game = PokerGame(num_players=NUM_PLAYERS, starting_chips=1000,
-                     human_player=-1)   # -1 = no human seat
+                     human_player=-1)   # no human seat in training
 
     agents = {
-        0: SimpleRuleAgent(0),    # ← swap this for your AI
+        0: SimpleRuleAgent(0),    # ← swap in your AI here
         1: RandomAgent(1),
         2: CallStationAgent(2),
         3: RandomAgent(3),
     }
 
-    # ── Run ───────────────────────────────────────────────────────────────────
     total_deltas = defaultdict(int)
     wins         = defaultdict(int)
 
@@ -78,7 +75,7 @@ def main():
         if args.verbose:
             print(f"\n── Hand {ep + 1} ──")
 
-        # Skip players who are bust
+        # Stop once too many seats are busted to keep playing
         active_agents = {p.pid: agents[p.pid]
                          for p in game.players if p.chips > 0}
         if len(active_agents) < 2:

@@ -1,10 +1,9 @@
 """
-main.py — Entry point.
+main.py — Kick off a game.
 
-Run modes:
-    python main.py                  # Pygame UI, you play as seat 0
-    python main.py --headless       # No UI, all bots
-    python main.py --no-human       # Pygame UI, watch bots play
+    python main.py                  # play seat 0 in the Pygame UI
+    python main.py --headless       # bots only, no window
+    python main.py --no-human       # watch bots in the UI
 """
 
 import argparse
@@ -34,11 +33,11 @@ def main():
         human_player=human_seat,
     )
 
-    # Build agents — index 0 is the human seat (None = human input via UI)
+    # None in the agents map = human seat (renderer collects their input)
     agents = {}
     for i in range(args.players):
         if i == human_seat:
-            agents[i] = None   # UI handles human input
+            agents[i] = None
         elif i == 1:
             agents[i] = SimpleRuleAgent(i)
         elif i == 2:

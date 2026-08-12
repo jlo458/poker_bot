@@ -1,5 +1,7 @@
 """
-game.py — Texas Hold'em game engine (state machine, no rendering)
+game.py — Texas Hold'em engine.
+
+Pure state machine: deals, betting, street advances, showdown. No UI.
 """
 
 from dataclasses import dataclass, field
@@ -78,8 +80,8 @@ class GameState:
 
     def to_observation(self, perspective_pid: int) -> dict:
         """
-        Returns game state from one player's perspective.
-        Opponent hole cards are hidden. Use this as AI input.
+        Snapshot from one player's point of view — opponent hole cards
+        are hidden. Pass this into an agent as its input.
         """
         me = next(p for p in self.players if p.pid == perspective_pid)
         return {
@@ -112,9 +114,9 @@ class GameState:
 
 class PokerGame:
     """
-    State-machine Texas Hold'em engine.
+    Drive a hand with new_hand / legal_actions / apply_action / hand_over.
 
-    Usage:
+    Typical loop:
         game = PokerGame(num_players=4, starting_chips=1000)
         game.new_hand()
         while not game.hand_over():
@@ -156,7 +158,7 @@ class PokerGame:
         self._action_history = []
         self._deck = Deck()
 
-        # Reset per-hand fields
+        # Clear last hand's street state
         for p in self.players:
             p.hole_cards = []
             p.bet        = 0
@@ -166,23 +168,21 @@ class PokerGame:
             p.is_dealer  = False
             p.has_acted  = False
 
-        # Rotate dealer (skip broke players)
+        # Button moves; skip anyone with no chips left
         self.dealer_idx = self._next_idx(self.dealer_idx, skip_broke=True)
         self.players[self.dealer_idx].is_dealer = True
 
-        # Post blinds
         sb_idx = self._next_idx(self.dealer_idx, skip_broke=True)
         bb_idx = self._next_idx(sb_idx,          skip_broke=True)
         pot = 0
         pot += self._post_blind(sb_idx, self.SMALL_BLIND)
         pot += self._post_blind(bb_idx, self.BIG_BLIND)
 
-        # Deal hole cards
         for p in self.players:
             if p.chips > 0 or p.all_in:
                 p.hole_cards = self._deck.deal(2)
 
-        # Pre-flop: UTG (left of BB) acts first
+        # Preflop action starts UTG (left of the big blind)
         first_actor = self._next_idx(bb_idx)
 
         self._state = GameState(
@@ -213,12 +213,11 @@ class PokerGame:
         else:
             actions.append((Action.CALL, min(to_call, me.chips)))
 
-        # Can raise/bet if we have chips beyond the call
+        # Raise/bet only if we have chips left after calling
         if me.chips > to_call:
-            # Min raise = current bet + one big blind increment (standard poker rule)
-            # Post-flop with no bet yet: min bet = one big blind
+            # Standard: min raise is current bet + one BB (also covers open-bet size)
             min_raise = s.current_bet + self.BIG_BLIND
-            cap       = me.chips + me.bet   # can't commit more than we have
+            cap       = me.chips + me.bet   # all-in ceiling
             actions.append((Action.RAISE, min(min_raise, cap)))
 
         return actions
@@ -252,7 +251,7 @@ class PokerGame:
             s.current_bet = raise_to
             if me.chips == 0:
                 me.all_in = True
-            # A raise re-opens action — everyone else needs to act again
+            # Raise re-opens the street — others still need to respond
             for p in s.players:
                 if p.pid != me.pid and not p.folded and not p.all_in:
                     p.has_acted = False
@@ -276,13 +275,13 @@ class PokerGame:
         p.chips     -= actual
         p.bet        = actual
         p.total_bet  = actual
-        p.has_acted  = False   # blinds don't count as "acted"
+        p.has_acted  = False   # posting a blind isn't a voluntary action
         if p.chips == 0:
             p.all_in = True
         return actual
 
     def _next_idx(self, from_idx: int, skip_broke: bool = False) -> int:
-        """Return the next player index who can act."""
+        """Next seat that can still act (skips folds / all-ins / optionally broke)."""
         n   = len(self.players)
         idx = (from_idx + 1) % n
         for _ in range(n):
@@ -291,14 +290,12 @@ class PokerGame:
             if not p.folded and not p.all_in and not broke:
                 return idx
             idx = (idx + 1) % n
-        return from_idx  # fallback (shouldn't happen in a valid game)
+        return from_idx  # shouldn't hit this in a well-formed hand
 
     def _betting_done(self) -> bool:
         """
-        Betting is complete when every active player has:
-          1. acted at least once this street, AND
-          2. their current bet matches the table's current bet
-             (or they are all-in)
+        Street is done once every live player has acted and matched the
+        current bet (all-ins get a pass — they've already put everything in).
         """
         for p in self.players:
             if p.folded or p.all_in:
@@ -313,17 +310,17 @@ class PokerGame:
         s       = self._state
         in_hand = s.players_in_hand()
 
-        # Everyone folded but one — instant win
+        # Everyone else folded — scoop without a showdown
         if len(in_hand) == 1:
             self._resolve([in_hand[0].pid], {})
             return
 
-        # Betting still going — move to next player
+        # Still people to act this street
         if not self._betting_done():
             s.acting_player = self._next_idx(s.acting_player)
             return
 
-        # ── Street is over — advance ──────────────────────────────────────
+        # ── Street is over — move on ──────────────────────────────────────
         next_street = {
             Street.PREFLOP: Street.FLOP,
             Street.FLOP:    Street.TURN,
@@ -332,19 +329,16 @@ class PokerGame:
         }
         s.street = next_street[s.street]
 
-        # Reset street bets and acted flags
         for p in s.players:
             p.bet       = 0
             p.has_acted = False
         s.current_bet = 0
 
-        # Deal community cards
         if s.street == Street.FLOP:
             s.community = self._deck.deal(3)
         elif s.street in (Street.TURN, Street.RIVER):
             s.community += self._deck.deal(1)
 
-        # Showdown
         if s.street == Street.SHOWDOWN:
             hole_cards       = {p.pid: p.hole_cards for p in in_hand}
             sorted_pids, results = rank_players(hole_cards, s.community)
@@ -353,7 +347,7 @@ class PokerGame:
             winners          = [pid for pid, res in results.items() if res == best]
             self._resolve(winners, results)
         else:
-            # Post-flop: first active player left of dealer acts first
+            # Postflop: first live player left of the button opens
             s.acting_player = self._next_idx(s.dealer_idx)
 
     def _resolve(self, winners: list[int], results: dict):
