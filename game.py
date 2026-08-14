@@ -323,7 +323,7 @@ class PokerGame:
             s.acting_player = self._next_idx(s.acting_player)
             return
 
-        # ── Street is over — advance ──────────────────────────────────────
+        # Street is over — advance 
         next_street = {
             Street.PREFLOP: Street.FLOP,
             Street.FLOP:    Street.TURN,
