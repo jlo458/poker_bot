@@ -56,7 +56,7 @@ def main():
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()
 
-    # ── Set up game ───────────────────────────────────────────────────────────
+    # Set up game
     NUM_PLAYERS = 4
     game = PokerGame(num_players=NUM_PLAYERS, starting_chips=1000,
                      human_player=-1)   # -1 = no human seat
@@ -68,7 +68,7 @@ def main():
         3: RandomAgent(3),
     }
 
-    # ── Run ───────────────────────────────────────────────────────────────────
+    # Run
     total_deltas = defaultdict(int)
     wins         = defaultdict(int)
 
@@ -95,7 +95,7 @@ def main():
         if (ep + 1) % 200 == 0 and not args.verbose:
             print(f"  Hand {ep + 1}/{args.hands} …")
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+    # Summary 
     print("\n" + "═" * 46)
     print(f"{'Player':<12} {'Agent':<20} {'Net chips':>10} {'Wins':>6}")
     print("─" * 46)
