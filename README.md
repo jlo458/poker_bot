@@ -10,7 +10,7 @@ PokerBot/
 ├── game.py               # Game engine (state machine)
 ├── card.py               # Card & Deck primitives
 ├── evaluator.py          # Hand evaluation
-├── equity.py             # Monte Carlo equity estimator
+├── strategy.py           # Position awareness + bluff frequency calibrator
 ├── renderer.py           # Pygame UI (optional)
 ├── train_headless.py     # Headless training script
 └── agents/
@@ -54,7 +54,7 @@ The project is split into independent layers — each only knows about the layer
 ```
 renderer.py              →  Pygame UI (optional)
 game.py                  →  Engine (no display dependency)
-equity.py                →  Monte Carlo estimator (no game dependency)
+strategy.py              →  Position + bluff calibration (no display dependency)
 card.py / evaluator.py   →  Primitives
 ```
 
@@ -164,8 +164,22 @@ for episode in range(100_000):
 |---|---|---|
 | `RandomAgent` | Random legal action | Baseline / noise |
 | `CallStationAgent` | Always calls, never folds or raises | Wins pots, loses chips |
-| `SimpleRuleAgent` | Heuristic hand strength estimate | Weak — no real equity |
-| `PotOddsAgent` | Monte Carlo equity + pot odds + bet sizing | **Current best** |
+| `SimpleRuleAgent` | Monte Carlo equity + pot odds, with position and calibrated bluffs | Intermediate |
+| `PotOddsAgent` | Equity + pot odds + bet sizing + GTO bluff calibration + position | **Current best** |
+
+### Position awareness
+
+Bots classify their seat relative to the dealer (UTG, blinds, cutoff, button) and whether they actually close the action. Out of position they raise the equity bar — they fold more junk and need a stronger hand to bet. On the button they bet more often, size up, and steal blinds more.
+
+### Bluff frequency calibration
+
+`BluffFrequencyCalibrator` in `strategy.py` keeps bluffs unexploitable. When betting `B` into pot `P`, a calling opponent is indifferent if a fraction
+
+```
+α = B / (P + B)
+```
+
+of your bets are bluffs (half-pot → 1/3, pot-sized → 1/2). The calibrator scales the agent's base bluff frequency with `α`, then discounts for multiway pots and out-of-position spots, and bumps it for button steals and flop/turn semi-bluffs. Weak medium hands are not turned into bluffs — only air and draws.
 
 ### PotOddsAgent
 
@@ -209,8 +223,8 @@ Random          bust         (3% win rate)
 
 **Phase 2 — Smarter statistics**
 - Opponent modelling — track each player's fold rate, aggression, and VPIP across hands; adjust strategy accordingly
-- Position awareness — play tighter out of position, more aggressively on the button
-- Bluff frequency calibration — bluff enough to stay unexploitable, not more
+- ~~Position awareness — play tighter out of position, more aggressively on the button~~
+- ~~Bluff frequency calibration — bluff enough to stay unexploitable, not more~~
 
 **Phase 3 — Machine learning**
 - Supervised learning on real hand history datasets (public ones available online)
