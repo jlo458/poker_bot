@@ -14,7 +14,7 @@ from card import Card, Rank, Suit
 from evaluator import best_hand, rank_players
 
 
-# ── Monte Carlo equity estimator ──────────────────────────────────────────────
+# Monte Carlo equity estimator 
 
 def estimate_equity(hole_cards: list[Card], community: list[Card], 
                     num_opponents: int, simulations: int = 500) -> float:
@@ -78,7 +78,7 @@ def estimate_equity(hole_cards: list[Card], community: list[Card],
     return wins / simulations
 
 
-# ── Base class ────────────────────────────────────────────────────────────────
+# Base class
 
 class BaseAgent:
     def __init__(self, pid: int):
@@ -95,7 +95,7 @@ class BaseAgent:
         return state.players[self.pid].chips
 
 
-# ── Random agent ──────────────────────────────────────────────────────────────
+# Random agent
 
 class RandomAgent(BaseAgent):
     """Picks a uniformly random legal action. Useful baseline / opponent filler."""
@@ -110,7 +110,7 @@ class RandomAgent(BaseAgent):
         return action, amount
 
 
-# ── Rule-based "call station" ─────────────────────────────────────────────────
+# Rule-based "call station"
 
 class CallStationAgent(BaseAgent):
     """
@@ -127,7 +127,7 @@ class CallStationAgent(BaseAgent):
         return Action.FOLD, 0
 
 
-# ── Simple rule-based agent ───────────────────────────────────────────────────
+# Simple rule-based agent
 
 class SimpleRuleAgent(BaseAgent):
     """
@@ -159,7 +159,7 @@ class SimpleRuleAgent(BaseAgent):
         # Calculate pot odds: what fraction of the new pot do we invest?
         pot_odds = to_call / (pot + to_call) if to_call > 0 else 0
 
-        # ── Decision logic ────────────────────────────────────────────────────
+        # Decision logic
         
         # Strong hand: raise if possible, otherwise call
         if equity > 0.75:
