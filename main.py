@@ -46,7 +46,7 @@ def main():
         else:
             agents[i] = RandomAgent(i)
 
-    # ── Headless ──────────────────────────────────────────────────────────────
+    # Headless
     if args.headless:
         from collections import defaultdict
         from train_headless import run_episode
@@ -62,7 +62,7 @@ def main():
         print("Done. Wins:", dict(wins))
         return
 
-    # ── Pygame UI ─────────────────────────────────────────────────────────────
+    # Pygame UI
     try:
         from renderer import PokerRenderer
     except ImportError:
