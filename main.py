@@ -24,7 +24,7 @@ def main():
     args = parser.parse_args()
 
     from game import PokerGame
-    from base_agents import RandomAgent, SimpleRuleAgent, CallStationAgent
+    from base_agents import RandomAgent, SimpleRuleAgent, CallStationAgent, PotOddsAgent
 
     human_seat = -1 if (args.headless or args.no_human) else 0
 
@@ -40,8 +40,10 @@ def main():
         if i == human_seat:
             agents[i] = None   # UI handles human input
         elif i == 1:
-            agents[i] = SimpleRuleAgent(i)
+            agents[i] = PotOddsAgent(i)
         elif i == 2:
+            agents[i] = SimpleRuleAgent(i)
+        elif i == 3:
             agents[i] = CallStationAgent(i)
         else:
             agents[i] = RandomAgent(i)

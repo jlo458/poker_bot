@@ -14,7 +14,7 @@ import argparse
 from collections import defaultdict
 
 from game import PokerGame, Action, Street
-from base_agents import RandomAgent, SimpleRuleAgent, CallStationAgent
+from base_agents import RandomAgent, SimpleRuleAgent, CallStationAgent, PotOddsAgent
 
 
 def run_episode(game: PokerGame, agents: dict, verbose=False) -> dict:
@@ -62,8 +62,8 @@ def main():
                      human_player=-1)   # -1 = no human seat
 
     agents = {
-        0: SimpleRuleAgent(0),    # ← swap this for your AI
-        1: RandomAgent(1),
+        0: PotOddsAgent(0),       # ← swap this for your AI
+        1: SimpleRuleAgent(1),
         2: CallStationAgent(2),
         3: RandomAgent(3),
     }
@@ -100,8 +100,8 @@ def main():
     print(f"{'Player':<12} {'Agent':<20} {'Net chips':>10} {'Wins':>6}")
     print("─" * 46)
     agent_names = {
-        0: 'SimpleRule',
-        1: 'Random',
+        0: 'PotOdds',
+        1: 'SimpleRule',
         2: 'CallStation',
         3: 'Random',
     }
